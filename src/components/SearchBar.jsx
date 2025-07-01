@@ -19,7 +19,7 @@ const SearchBar = () => {
     { title: 'Google', url: 'https://google.com', visitCount: 50, lastVisit: new Date(Date.now() - 600000) },
     { title: 'LinkedIn', url: 'https://linkedin.com', visitCount: 6, lastVisit: new Date(Date.now() - 14400000) },
     { title: 'YouTube', url: 'https://youtube.com', visitCount: 20, lastVisit: new Date(Date.now() - 2700000) },
-    { title: 'ChatGPT', url: 'https://chat.openai.com', visitCount: 30, lastVisit: new Date(Date.now() - 900000) }
+    { title: 'ChatGPT', url: 'https://chatgpt.com', visitCount: 30, lastVisit: new Date(Date.now() - 900000) }
   ]
 
   useEffect(() => {
