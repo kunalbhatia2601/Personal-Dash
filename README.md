@@ -39,7 +39,7 @@
 
 1. **Clone the repository**
    ```bash
-   git clone <repository-url>
+   git clone https://github.com/kunalbhatia2601/Personal-Dash.git
    cd PersonalDash
    ```
 
@@ -544,7 +544,7 @@ if (DEBUG) console.log('Debug info:', data)
 
 **Kunal Bhatia**
 - GitHub: [@kunalbhatia2601](https://github.com/kunalbhatia2601)
-- Email: kunal@example.com
+- Email: Kunal@codeflixlabs.com
 - LinkedIn: [Kunal Bhatia](https://linkedin.com/in/kunalbhatia2601)
 
 ---
