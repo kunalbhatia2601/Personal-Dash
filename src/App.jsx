@@ -4,6 +4,7 @@ import ImportantLinks from './components/ImportantLinks'
 import TodoTasks from './components/TodoTasks'
 import HabitTracker from './components/HabitTracker'
 import Reports from './components/Reports'
+import SearchBar from './components/SearchBar'
 
 const App = () => {
   const [activeView, setActiveView] = useState('dashboard')
@@ -41,22 +42,25 @@ const App = () => {
               </div>
             </div>
             
-            <nav className="flex space-x-2">
-              {navItems.map((item) => (
-                <button
-                  key={item.id}
-                  onClick={() => setActiveView(item.id)}
-                  className={`flex items-center space-x-2 px-4 py-2 rounded-full font-medium transition-all duration-200 ${
-                    activeView === item.id
-                      ? 'bg-gradient-to-r from-purple-600 to-blue-600 text-white shadow-lg'
-                      : 'text-gray-300 hover:bg-gray-800 hover:text-white'
-                  }`}
-                >
-                  <span>{item.icon}</span>
-                  <span>{item.label}</span>
-                </button>
-              ))}
-            </nav>
+            <div className="flex items-center space-x-4">
+              <SearchBar />
+              <nav className="flex space-x-2">
+                {navItems.map((item) => (
+                  <button
+                    key={item.id}
+                    onClick={() => setActiveView(item.id)}
+                    className={`flex items-center space-x-2 px-4 py-2 rounded-full font-medium transition-all duration-200 ${
+                      activeView === item.id
+                        ? 'bg-gradient-to-r from-purple-600 to-blue-600 text-white shadow-lg'
+                        : 'text-gray-300 hover:bg-gray-800 hover:text-white'
+                    }`}
+                  >
+                    <span>{item.icon}</span>
+                    <span>{item.label}</span>
+                  </button>
+                ))}
+              </nav>
+            </div>
           </div>
         </div>
       </header>
