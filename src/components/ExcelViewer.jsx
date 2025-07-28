@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react'
 import * as XLSX from 'xlsx'
+import jsPDF from 'jspdf'
 
 const ExcelViewer = () => {
     const [files, setFiles] = useState([])
@@ -13,6 +14,14 @@ const ExcelViewer = () => {
     const [currentSheet, setCurrentSheet] = useState(0)
     const [showJsonModal, setShowJsonModal] = useState(false)
     const [jsonInput, setJsonInput] = useState('')
+    const [showPdfModal, setShowPdfModal] = useState(false)
+    const [selectedColumns, setSelectedColumns] = useState(new Set())
+    const [pdfOptions, setPdfOptions] = useState({
+        title: '',
+        fontSize: 12,
+        spacing: 10,
+        pageOrientation: 'portrait'
+    })
 
     // Load files from localStorage
     useEffect(() => {
@@ -447,6 +456,178 @@ const ExcelViewer = () => {
         setSelectedCells(new Set())
     }
 
+    // Toggle column selection for PDF generation
+    const toggleColumnSelection = (columnIndex) => {
+        const newSelection = new Set(selectedColumns)
+        if (newSelection.has(columnIndex)) {
+            newSelection.delete(columnIndex)
+        } else {
+            newSelection.add(columnIndex)
+        }
+        setSelectedColumns(newSelection)
+    }
+
+    // Generate PDF with selected columns
+    const generatePDF = () => {
+        if (!excelData || selectedColumns.size === 0) {
+            alert('Please select at least one column to generate PDF')
+            return
+        }
+
+        try {
+            const doc = new jsPDF({
+                orientation: pdfOptions.pageOrientation,
+                unit: 'mm',
+                format: 'a4'
+            })
+
+            const currentSheetData = excelData.sheets[currentSheet].data
+            if (currentSheetData.length === 0) return
+
+            // Get selected column indices and headers
+            const selectedColumnIndices = Array.from(selectedColumns).sort((a, b) => a - b)
+            const headers = currentSheetData[0]
+            const selectedHeaders = selectedColumnIndices.map(index => headers[index] || `Column ${index + 1}`)
+
+            // PDF settings
+            const pageWidth = doc.internal.pageSize.getWidth()
+            const pageHeight = doc.internal.pageSize.getHeight()
+            const margin = 20
+            const contentWidth = pageWidth - (2 * margin)
+            let currentY = margin
+
+            // Calculate dynamic indentation based on longest header
+            const longestHeader = selectedHeaders.reduce((longest, current) => 
+                current.length > longest.length ? current : longest, '')
+            const headerWidth = doc.getTextWidth(longestHeader + ': ')
+            const dynamicIndent = Math.min(headerWidth + 5, contentWidth * 0.4) // Max 40% of page width
+
+            // Add title if provided
+            if (pdfOptions.title) {
+                doc.setFontSize(16)
+                doc.setFont(undefined, 'bold')
+                const titleLines = doc.splitTextToSize(pdfOptions.title, contentWidth)
+                doc.text(titleLines, margin, currentY)
+                currentY += titleLines.length * 6 + 5
+            }
+
+            // Add sheet name
+            doc.setFontSize(14)
+            doc.setFont(undefined, 'bold')
+            doc.text(`Sheet: ${excelData.sheetNames[currentSheet]}`, margin, currentY)
+            currentY += 10
+
+            // Add generation date
+            doc.setFontSize(10)
+            doc.setFont(undefined, 'normal')
+            doc.text(`Generated: ${new Date().toLocaleDateString()}`, margin, currentY)
+            currentY += pdfOptions.spacing
+
+            // Process data rows (skip header row)
+            const dataRows = currentSheetData.slice(1)
+            
+            dataRows.forEach((row, rowIndex) => {
+                // Calculate estimated height for this record
+                let estimatedHeight = 0
+                selectedColumnIndices.forEach((colIndex) => {
+                    const value = String(row[colIndex] || '')
+                    const valueWidth = contentWidth - dynamicIndent
+                    const textLines = doc.splitTextToSize(value, valueWidth)
+                    estimatedHeight += Math.max(textLines.length * (pdfOptions.fontSize * 0.35), pdfOptions.fontSize * 0.35) + 3
+                })
+                estimatedHeight += pdfOptions.spacing + 5 // Add spacing and separator
+
+                // Check if we need a new page
+                if (currentY + estimatedHeight > pageHeight - margin) {
+                    doc.addPage()
+                    currentY = margin
+                }
+
+                // Add record number (optional)
+                if (rowIndex === 0 || currentY === margin) {
+                    doc.setFontSize(pdfOptions.fontSize - 1)
+                    doc.setFont(undefined, 'italic')
+                    doc.setTextColor(128, 128, 128)
+                    doc.text(`Question ${rowIndex + 1}`, margin, currentY)
+                    doc.setTextColor(0, 0, 0) // Reset to black
+                    currentY += pdfOptions.fontSize * 0.35 + 2
+                }
+
+                // Add row data
+                selectedColumnIndices.forEach((colIndex, index) => {
+                    const header = selectedHeaders[index]
+                    const value = String(row[colIndex] || '')
+                    
+                    // Header with proper wrapping
+                    doc.setFontSize(pdfOptions.fontSize)
+                    doc.setFont(undefined, 'bold')
+                    
+                    // Handle long headers by wrapping them
+                    const headerText = `${header}:`
+                    const headerLines = doc.splitTextToSize(headerText, dynamicIndent - 5)
+                    doc.text(headerLines, margin, currentY)
+                    
+                    // Calculate header height
+                    const headerHeight = headerLines.length * (pdfOptions.fontSize * 0.35)
+                    
+                    // Value with text wrapping
+                    doc.setFont(undefined, 'normal')
+                    const valueWidth = contentWidth - dynamicIndent
+                    const textLines = doc.splitTextToSize(value, valueWidth)
+                    
+                    // Position value text properly
+                    const valueStartY = currentY
+                    doc.text(textLines, margin + dynamicIndent, valueStartY)
+                    
+                    // Calculate total height for this field (header or value, whichever is taller)
+                    const valueHeight = textLines.length * (pdfOptions.fontSize * 0.35)
+                    const fieldHeight = Math.max(headerHeight, valueHeight)
+                    
+                    currentY += fieldHeight + 3 // Add small spacing between fields
+                })
+                
+                // Add spacing between records
+                currentY += pdfOptions.spacing
+                
+                // Add separator line
+                if (rowIndex < dataRows.length - 1) {
+                    doc.setDrawColor(200, 200, 200)
+                    doc.setLineWidth(0.1)
+                    doc.line(margin, currentY - pdfOptions.spacing/2, pageWidth - margin, currentY - pdfOptions.spacing/2)
+                }
+            })
+
+            // Add footer with page numbers
+            const totalPages = doc.internal.getNumberOfPages()
+            for (let i = 1; i <= totalPages; i++) {
+                doc.setPage(i)
+                doc.setFontSize(8)
+                doc.setFont(undefined, 'normal')
+                doc.text(`Page ${i} of ${totalPages}`, pageWidth - margin - 20, pageHeight - 10)
+            }
+
+            // Save the PDF
+            const fileName = `${selectedFile?.name?.replace(/\.[^/.]+$/, '') || 'excel_data'}_${excelData.sheetNames[currentSheet]}_columns.pdf`
+            doc.save(fileName)
+            
+            setShowPdfModal(false)
+            alert('PDF generated successfully!')
+
+        } catch (error) {
+            console.error('Error generating PDF:', error)
+            alert('Error generating PDF. Please try again.')
+        }
+    }
+
+    // Initialize column selection when sheet changes
+    useEffect(() => {
+        if (excelData && excelData.sheets[currentSheet]) {
+            const headers = excelData.sheets[currentSheet].data[0] || []
+            // Auto-select all columns initially
+            setSelectedColumns(new Set(headers.map((_, index) => index)))
+        }
+    }, [excelData, currentSheet])
+
     return (
         <div className="space-y-8">
             {/* Header */}
@@ -474,6 +655,12 @@ const ExcelViewer = () => {
                         </button>
                         {excelData && (
                             <div className="flex items-center space-x-2">
+                                <button
+                                    onClick={() => setShowPdfModal(true)}
+                                    className="bg-gradient-to-r from-red-600 to-pink-600 text-white px-4 py-2 rounded-full font-medium hover:shadow-lg transition-all duration-200"
+                                >
+                                    📄 Generate PDF
+                                </button>
                                 <button
                                     onClick={copyAsJSON}
                                     className="bg-gradient-to-r from-orange-600 to-red-600 text-white px-4 py-2 rounded-full font-medium hover:shadow-lg transition-all duration-200"
@@ -780,6 +967,174 @@ const ExcelViewer = () => {
                                     className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                                 >
                                     Import Data
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* PDF Generation Modal */}
+            {showPdfModal && excelData && (
+                <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50">
+                    <div className="bg-gray-900 rounded-3xl p-8 max-w-4xl w-full mx-4 max-h-[90vh] overflow-auto border border-gray-700">
+                        <div className="flex justify-between items-center mb-6">
+                            <h2 className="text-2xl font-bold text-white">Generate PDF</h2>
+                            <button
+                                onClick={() => setShowPdfModal(false)}
+                                className="text-gray-400 hover:text-white text-2xl"
+                            >
+                                ✕
+                            </button>
+                        </div>
+                        
+                        <div className="space-y-6">
+                            {/* PDF Options */}
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div>
+                                    <label className="block text-white mb-2">Document Title:</label>
+                                    <input
+                                        type="text"
+                                        value={pdfOptions.title}
+                                        onChange={(e) => setPdfOptions({...pdfOptions, title: e.target.value})}
+                                        placeholder="Enter document title..."
+                                        className="w-full px-3 py-2 bg-gray-800 text-white rounded-lg border border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                    />
+                                </div>
+                                
+                                <div>
+                                    <label className="block text-white mb-2">Font Size:</label>
+                                    <select
+                                        value={pdfOptions.fontSize}
+                                        onChange={(e) => setPdfOptions({...pdfOptions, fontSize: parseInt(e.target.value)})}
+                                        className="w-full px-3 py-2 bg-gray-800 text-white rounded-lg border border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                    >
+                                        <option value={10}>Small (10pt)</option>
+                                        <option value={12}>Medium (12pt)</option>
+                                        <option value={14}>Large (14pt)</option>
+                                        <option value={16}>Extra Large (16pt)</option>
+                                    </select>
+                                </div>
+                                
+                                <div>
+                                    <label className="block text-white mb-2">Record Spacing:</label>
+                                    <select
+                                        value={pdfOptions.spacing}
+                                        onChange={(e) => setPdfOptions({...pdfOptions, spacing: parseInt(e.target.value)})}
+                                        className="w-full px-3 py-2 bg-gray-800 text-white rounded-lg border border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                    >
+                                        <option value={8}>Compact (8mm)</option>
+                                        <option value={10}>Normal (10mm)</option>
+                                        <option value={15}>Comfortable (15mm)</option>
+                                        <option value={20}>Spacious (20mm)</option>
+                                    </select>
+                                </div>
+                                
+                                <div>
+                                    <label className="block text-white mb-2">Page Orientation:</label>
+                                    <select
+                                        value={pdfOptions.pageOrientation}
+                                        onChange={(e) => setPdfOptions({...pdfOptions, pageOrientation: e.target.value})}
+                                        className="w-full px-3 py-2 bg-gray-800 text-white rounded-lg border border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                    >
+                                        <option value="portrait">Portrait</option>
+                                        <option value="landscape">Landscape</option>
+                                    </select>
+                                </div>
+                            </div>
+                            
+                            {/* Column Selection */}
+                            <div>
+                                <div className="flex justify-between items-center mb-4">
+                                    <h3 className="text-lg font-semibold text-white">Select Columns to Include:</h3>
+                                    <div className="flex space-x-2">
+                                        <button
+                                            onClick={() => {
+                                                const headers = excelData.sheets[currentSheet].data[0] || []
+                                                setSelectedColumns(new Set(headers.map((_, index) => index)))
+                                            }}
+                                            className="px-3 py-1 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm"
+                                        >
+                                            Select All
+                                        </button>
+                                        <button
+                                            onClick={() => setSelectedColumns(new Set())}
+                                            className="px-3 py-1 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors text-sm"
+                                        >
+                                            Clear All
+                                        </button>
+                                    </div>
+                                </div>
+                                
+                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 max-h-60 overflow-y-auto">
+                                    {excelData.sheets[currentSheet].data[0]?.map((header, index) => (
+                                        <label key={index} className="flex items-center space-x-3 p-3 bg-gray-800 rounded-lg hover:bg-gray-750 transition-colors cursor-pointer">
+                                            <input
+                                                type="checkbox"
+                                                checked={selectedColumns.has(index)}
+                                                onChange={() => toggleColumnSelection(index)}
+                                                className="w-4 h-4 text-blue-600 bg-gray-700 border-gray-600 rounded focus:ring-blue-500"
+                                            />
+                                            <div className="flex-1">
+                                                <div className="font-medium text-white">
+                                                    {header || `Column ${index + 1}`}
+                                                </div>
+                                                <div className="text-xs text-gray-400">
+                                                    Column {index + 1}
+                                                </div>
+                                            </div>
+                                        </label>
+                                    ))}
+                                </div>
+                                
+                                <div className="mt-4 p-3 bg-blue-900/20 rounded-lg border border-blue-500/30">
+                                    <div className="text-sm text-blue-300">
+                                        📋 Selected: {selectedColumns.size} columns
+                                        {selectedColumns.size > 0 && (
+                                            <span className="ml-2 text-blue-400">
+                                                ({Array.from(selectedColumns).sort((a, b) => a - b).map(i => 
+                                                    excelData.sheets[currentSheet].data[0][i] || `Col${i+1}`
+                                                ).join(', ')})
+                                            </span>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            {/* Preview */}
+                            {selectedColumns.size > 0 && (
+                                <div>
+                                    <h3 className="text-lg font-semibold text-white mb-3">Preview:</h3>
+                                    <div className="bg-gray-800 rounded-lg p-4 max-h-40 overflow-y-auto">
+                                        <div className="text-sm text-gray-300 space-y-2">
+                                            {Array.from(selectedColumns).sort((a, b) => a - b).map((colIndex, index) => {
+                                                const header = excelData.sheets[currentSheet].data[0][colIndex]
+                                                const sampleValue = excelData.sheets[currentSheet].data[1]?.[colIndex] || 'Sample data...'
+                                                return (
+                                                    <div key={colIndex} className="border-l-2 border-blue-500 pl-3">
+                                                        <span className="font-medium text-blue-300">{header}:</span>
+                                                        <span className="ml-2 text-gray-300">{sampleValue}</span>
+                                                    </div>
+                                                )
+                                            })}
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+                            
+                            <div className="flex justify-end space-x-4 pt-4 border-t border-gray-700">
+                                <button
+                                    onClick={() => setShowPdfModal(false)}
+                                    className="px-6 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors"
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    onClick={generatePDF}
+                                    disabled={selectedColumns.size === 0}
+                                    className="px-6 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                >
+                                    📄 Generate PDF ({selectedColumns.size} columns)
                                 </button>
                             </div>
                         </div>
